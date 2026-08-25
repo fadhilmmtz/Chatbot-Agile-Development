@@ -1,0 +1,451 @@
+{
+  "name": "Chatbot Aqidatul Awwam (Agentic: Intent + NER)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "chatbot-aqidatul-awwam",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "ecb986b4-0c41-437d-b61f-da1061e61bf1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -192,
+        0
+      ],
+      "webhookId": "d06e32b5-3405-4877-b644-5bb71b0d91a8"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "{{ $json.body.sessionId }}",
+        "contextWindowLength": 10
+      },
+      "id": "f695d07b-ec18-44ee-b412-9d7e9eacbdac",
+      "name": "Memori Percakapan",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.4,
+      "position": [
+        832,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"reply\": $json.output } }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "faac266a-2e0b-4f2e-918a-8ab053867dcf",
+      "name": "Kirim Jawaban ke Website",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1392,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "text": "={{ $json.body.message }}",
+        "attributes": {
+          "attributes": [
+            {
+              "name": "intent",
+              "description": "Klasifikasikan pesan santri ke SATU dari 4 nilai persis: \"cari_bait\" (jika santri minta bait berdasarkan NOMOR, mis. \"bait ke-5\", ATAU jika pesan berupa kalimat pendek tanpa entitas jelas yang kemungkinan besar merupakan LANJUTAN dari percakapan sebelumnya, mis. \"jelasin dong\", \"lebih detail\", \"kenapa begitu\", \"maksudnya apa\", \"boleh dijelasin lebih lanjut\" — perlakukan sebagai follow-up, BUKAN di_luar_konteks), \"cari_topik\" (jika santri minta bait berdasarkan TEMA, mis. \"sifat wajib Allah\"), \"sapaan\" (salam/basa-basi ringan), atau \"di_luar_konteks\" (pertanyaan yang JELAS berada di luar Kitab Aqidatul Awwam, mis. menanyakan resep masakan, cuaca, topik umum lain — BUKAN kalimat pendek ambigu yang bisa jadi follow-up)."
+            }
+          ]
+        },
+        "options": {
+          "systemPromptTemplate": "# ROLE\n   Anda adalah komponen Intent Classification pada sistem NLU chatbot Kitab Aqidatul Awwam. Tugas Anda HANYA mengklasifikasikan intent, bukan mengekstrak entitas atau menjawab pertanyaan.\n\n# OUTPUT\nKeluarkan hanya nilai intent sesuai definisi atribut, tanpa penjelasan tambahan."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.informationExtractor",
+      "typeVersion": 1.2,
+      "position": [
+        48,
+        0
+      ],
+      "id": "8dcb50de-1d69-4167-b61b-000af2345192",
+      "name": "Klasifikasi Intent"
+    },
+    {
+      "parameters": {
+        "text": "={{ $('Webhook').item.json.body.message }}",
+        "attributes": {
+          "attributes": [
+            {
+              "name": "nomor_bait",
+              "type": "number",
+              "description": "Angka nomor bait yang disebutkan santri, jika ada. Toleran terhadap typo. Jika tidak disebutkan, isi dengan angka 0."
+            },
+            {
+              "name": "topik",
+              "description": "Tema/topik yang disebutkan santri (mis. \"Sifat Allah\", \"Nama Nabi\", \"Sifat Rasul\"), jika ada. Toleran terhadap variasi ejaan transliterasi Arab-Latin. Jika tidak disebutkan, isi dengan string kosong \"\" (JANGAN gunakan null)."
+            },
+            {
+              "name": "requested_fields",
+              "description": "Daftar field spesifik yang diminta santri, dipisah koma. Jika santri tidak menyebut field spesifik, isi dengan string kosong \"\" (JANGAN gunakan null) — default: tampilkan Arab+Latin+Terjemahan+Topik, TANPA tafsiran. Isi \"tafsir\" jika santri eksplisit minta penjelasan/makna lebih dalam (mis. \"jelasin dong\", \"tafsirnya gimana\", \"maksudnya apa\", \"boleh dijelasin lebih lanjut\") - baik di pesan pertama maupun follow-up. Isi field lain (mis. \"terjemahan\", \"arab\") jika santri membatasi ke field tertentu saja. Pertanyaan umum seperti \"bait ke-5 apa\" TIDAK dianggap membatasi (isi \"\")."
+            }
+          ]
+        },
+        "options": {
+          "systemPromptTemplate": "# ROLE\nAnda adalah komponen Named Entity Recognition (NER) pada sistem NLU chatbot Kitab Aqidatul Awwam. Tugas Anda HANYA mengekstrak entitas, bukan mengklasifikasikan intent atau menjawab pertanyaan.\n\n# OUTPUT\nKeluarkan hanya nilai entitas sesuai definisi atribut. Untuk field yang tidak disebutkan santri, WAJIB isi dengan nilai kosong sesuai tipe datanya: angka 0 untuk field bertipe Number, string kosong \"\" untuk field bertipe String. JANGAN PERNAH mengeluarkan nilai null pada field apapun.\n\nPetakan istilah umum santri ke nilai topik PERSIS berikut (semua huruf kecil):\n- \"nabi\", \"nama nabi\", \"nabi-nabi\" → \"nama-nama 25 rasul\"\n- \"malaikat\", \"nama malaikat\" → \"nama-nama 10 malaikat\" (kecuali santri sebut \"sifat malaikat\" → \"sifat-sifat malaikat\")\n- \"kitab Allah\", \"kitab suci\" (tanpa kata \"suhuf\"/\"lembaran\") → \"kitab-kitab suci allah\"\n- \"suhuf\", \"lembaran wahyu\" → \"kitab-kitab suci allah (shuhuf)\"\n- \"anak nabi\", \"putra nabi\", \"putri nabi\" → \"putra-putri nabi muhammad\"\n- \"istri nabi\", \"istri rasul\" → \"istri-istri nabi muhammad\"\n- \"keturunan nabi\", \"silsilah nabi\", \"nasab\" → \"nasab nabi muhammad\"\n- \"umur nabi\", \"usia rasul\" → \"usia nabi muhammad\"\n- \"isra miraj\", \"isra' mi'raj\", \"perjalanan malam\" → \"peristiwa isra' mi'raj\"\n- \"penutup\", \"akhir kitab\", \"khatimah\" → \"khatimah (penutup kitab)\"\n- \"wajib makrifat\", \"mengenal allah\" → \"kewajiban makrifat (mengenal allah)\"\n- \"paman nabi\", \"bibi nabi\" → \"paman dan bibi nabi muhammad\"\n- \"iman rasul\", \"percaya rasul\" → \"kewajiban menerima ajaran rasul\"\n- \"kiamat\", \"hari akhirat\" → \"iman kepada hari akhir\"\n- \"mukallaf\", \"syarat mukallaf\" → \"kewajiban mukallaf\"\n- \"kelahiran nabi\", \"wafat nabi\" → \"kelahiran dan wafat nabi muhammad\"\n- \"maksum\", \"kesucian malaikat\" → \"kesucian rasul dan malaikat\"\n- \"shalawat\" → \"shalawat untuk nabi dan keluarga\"\n- \"sifat mustahil\" (tanpa spesifik Allah/rasul) → \"sifat mustahil allah dan rasul\"\n\nJika santri menyebut \"sejarah nabi\" secara umum tanpa spesifik, JANGAN menebak satu topik \n— isi requested_fields dengan \"\" dan biarkan topik diisi \"sejarah nabi muhammad\" sebagai default terluas."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.informationExtractor",
+      "typeVersion": 1.2,
+      "position": [
+        464,
+        0
+      ],
+      "id": "0168f02c-76c4-4727-9b5c-e3665c5db2dd",
+      "name": "Ekstraksi Entitas (NER)"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "==Intent: {{ $('Klasifikasi Intent').item.json.output.intent }}\nNomor Bait: {{ $('Ekstraksi Entitas (NER)').item.json.output.nomor_bait }}\nTopik: {{ $('Ekstraksi Entitas (NER)').item.json.output.topik }}\nRequested Fields: {{ $('Ekstraksi Entitas (NER)').item.json.output.requested_fields }}\nPesan Asli Santri: {{ $('Webhook').item.json.body.message }}",
+        "options": {
+          "systemMessage": "# ROLE\nAnda adalah komponen Response Generation pada sistem chatbot Kitab Aqidatul Awwam. Intent dan entitas SUDAH ditentukan oleh komponen sebelumnya — tugas Anda HANYA memanggil tool yang tepat dan memformat jawaban.\n\n# TUGAS\n- Jika Intent = cari_bait DAN Nomor Bait tersedia: panggil tool \"cari_bait_by_nomor\" dengan Nomor Bait.\n- Jika Intent = cari_topik DAN Topik tersedia: panggil tool \"cari_bait_by_topik\" dengan Topik.\n- Jika Intent = sapaan: balas ramah, tawarkan bantuan mencari bait. Jangan panggil tool.\n- Jika Intent = di_luar_konteks: jelaskan sopan bahwa Anda hanya melayani Kitab Aqidatul Awwam. Jangan panggil tool.\n- Jangan mengarang bait, teks Arab, transliterasi, terjemahan, maupun tafsiran. Seluruh isi jawaban wajib bersumber dari hasil tool.\n- Jika tool \"cari_bait_by_nomor\" tidak mengembalikan hasil: sampaikan dengan sopan bahwa bait tidak ditemukan, sertakan penegasan bahwa Kitab Aqidatul Awwam hanya terdiri dari 57 bait, dan minta santri menyebutkan nomor dalam rentang tersebut.\n- Jika tool \"cari_bait_by_topik\" tidak mengembalikan hasil: sampaikan dengan sopan bahwa topik tidak ditemukan, dan sertakan panduan singkat topik-topik yang tersedia pada data agar santri dapat mencoba pencarian ulang.\n\n# FORMAT JAWABAN\nJika Requested Fields KOSONG (santri tidak menyebut field spesifik), tampilkan format DEFAULT:\nBait ke-{Nomor_Bait} - Topik: {Topik}\nArab: {Teks_Arab}\nLatin: {Transliterasi Latin}\nTerjemahan: {Terjemahan}\n\nSetelah itu, tutup dengan ajakan singkat dan natural (variasikan kalimatnya, jangan template kaku), contoh: \"Mau saya jelasin lebih dalam maknanya?\"\n\nJika Requested Fields berisi \"tafsir\" (baik dari permintaan awal maupun follow-up seperti \"jelasin dong\", \"tafsirnya gimana\", \"maksudnya apa\"), TAMBAHKAN baris:\nTafsiran: {Tafsiran}\n\nJika Requested Fields berisi pembatasan LAIN (mis. \"cuma artinya\", \"arabnya aja\"), tampilkan HANYA field yang diminta (selalu sertakan \"Bait ke-{Nomor_Bait}\" sebagai konteks di baris pertama).\n\nKamu adalah asisten pintar khusus pencarian dan penjelasan Kitab Aqidatul Awwam.\n\nGunakan Bahasa Indonesia yang sopan dan santun khas pesantren."
+        }
+      },
+      "id": "d5ecb3f4-b723-461c-a9db-83c30e6382b1",
+      "name": "AI Agent (Response Generator)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        880,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Mencari bait Kitab Aqidatul Awwam berdasarkan NOMOR BAIT (1-57). Gunakan tool ini KHUSUS saat santri menyebutkan nomor bait secara spesifik. Kembalikan kolom Teks_Arab, Transliterasi Latin, Terjemahan, Topik, dan Tafsiran.",
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/19E-ChTGafUSm7BWkk-MNL2OHcBb19yQgS9YFXcb3x3s/edit?usp=sharing",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 677237246,
+          "mode": "list",
+          "cachedResultName": "Isi Aqidatul Awwam",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/19E-ChTGafUSm7BWkk-MNL2OHcBb19yQgS9YFXcb3x3s/edit#gid=677237246"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Nomor_Bait",
+              "lookupValue": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('values0_Value', ``, 'string') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "eb17eb32-9ba0-4d9a-844b-5957d159668e",
+      "name": "cari_bait_by_nomor",
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        1104,
+        288
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "jrAlKOiwUMjDR4g3",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "temperature": 0
+        }
+      },
+      "id": "47667adf-dfc9-4f4e-bf07-61b4139cf544",
+      "name": "Gemini Flash Model2",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        16,
+        272
+      ],
+      "retryOnFail": true,
+      "credentials": {
+        "googlePalmApi": {
+          "id": "y5Ik24egZiIXJTt1",
+          "name": "Google Gemini(PaLM) Api account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Mencari bait Kitab Aqidatul Awwam berdasarkan TOPIK/TEMA (mis. Sifat Allah, Nama Nabi, Sifat Rasul). Gunakan tool ini KHUSUS saat santri bertanya berdasarkan tema, bukan nomor bait spesifik. Bisa mengembalikan lebih dari satu baris (banyak bait dalam satu topik).",
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/19E-ChTGafUSm7BWkk-MNL2OHcBb19yQgS9YFXcb3x3s/edit?usp=sharing",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 677237246,
+          "mode": "list",
+          "cachedResultName": "Isi Aqidatul Awwam",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/19E-ChTGafUSm7BWkk-MNL2OHcBb19yQgS9YFXcb3x3s/edit#gid=677237246"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Topik",
+              "lookupValue": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('values0_Value', `sesuatu seperti \"sifat wajib allah\", \"sifat jaiz allah\", \"peristiwa isra' mi'raj\" — nilai topik persis sesuai data di kolom Topik pada Google Sheets, huruf kecil semua tanpa kapital.`, 'string') }}"
+            }
+          ]
+        },
+        "options": {
+          "dataLocationOnSheet": {
+            "values": {
+              "rangeDefinition": "detectAutomatically"
+            }
+          }
+        }
+      },
+      "id": "f20e721a-a0e0-4df9-bc18-9ca81b0542c0",
+      "name": "cari_bait_by_topik",
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        1264,
+        288
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "jrAlKOiwUMjDR4g3",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "temperature": 0
+        }
+      },
+      "id": "5790a075-6d16-42fc-aa7d-76abb633e28f",
+      "name": "Gemini Flash Model3",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        288,
+        272
+      ],
+      "retryOnFail": true,
+      "credentials": {
+        "googlePalmApi": {
+          "id": "REwpMwA9muWqH4Xt",
+          "name": "Google Gemini(PaLM) Api account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.5-flash",
+        "options": {
+          "temperature": 0
+        }
+      },
+      "id": "41ff26f8-db96-45e8-82af-26403ec457a5",
+      "name": "Gemini Flash Model 1",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        656,
+        464
+      ],
+      "retryOnFail": true,
+      "credentials": {
+        "googlePalmApi": {
+          "id": "8smi0qmZINpy5UKk",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "options": {
+          "temperature": 0
+        }
+      },
+      "id": "4f587d5f-bcb1-4a8c-8d88-c3da632cf14b",
+      "name": "Gemini Flash Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        528,
+        272
+      ],
+      "retryOnFail": true,
+      "credentials": {
+        "googlePalmApi": {
+          "id": "wwdtGSElG6hn2Vcg",
+          "name": "Google Gemini(PaLM) Api account 4"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Klasifikasi Intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Memori Percakapan": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent (Response Generator)",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Klasifikasi Intent": {
+      "main": [
+        [
+          {
+            "node": "Ekstraksi Entitas (NER)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ekstraksi Entitas (NER)": {
+      "main": [
+        [
+          {
+            "node": "AI Agent (Response Generator)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent (Response Generator)": {
+      "main": [
+        [
+          {
+            "node": "Kirim Jawaban ke Website",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "cari_bait_by_nomor": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent (Response Generator)",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Flash Model2": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Klasifikasi Intent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "cari_bait_by_topik": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent (Response Generator)",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Flash Model3": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Ekstraksi Entitas (NER)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Flash Model 1": {
+      "ai_languageModel": [
+        []
+      ]
+    },
+    "Gemini Flash Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent (Response Generator)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "2e5029a4-1e41-40dd-8d4e-6ee75be56ef8",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "677e2509524f4123097112bd4980a7cf0f4b231f6b6d2eb4a34c665fef4b1e51"
+  },
+  "nodeGroups": [],
+  "id": "BpWlglgupqQPGslu",
+  "tags": []
+}
